@@ -8,8 +8,8 @@ from faster_whisper import WhisperModel
 
 # Configuración
 MODEL_SIZE = "large-v3"
-DEVICE = "auto" 
-COMPUTE_TYPE = "float16" # Cambiar a "int8" si tienes poca memoria o CPU
+DEVICE = "auto" # Cambiar a "cuda" o "cpu" según el entorno
+COMPUTE_TYPE = "int8" # Cambiar a "float16" si tienes GPU dedicada
 NUM_THREADS = 2          # Número de hilos concurrentes sugerido por defecto. Ajustar según RAM.
 CHUNK_LENGTH_MIN = 10    # Duración de cada fragmento (en minutos)
 OVERLAP_SEC = 2          # Solapamiento entre fragmentos para no cortar palabras (en segundos)
