@@ -3,8 +3,8 @@ import glob
 import time
 import math
 import concurrent.futures
+import ffmpeg
 from faster_whisper import WhisperModel
-from pydub import AudioSegment
 
 # Configuración
 MODEL_SIZE = "large-v3"
@@ -18,39 +18,59 @@ INPUT_DIR = "input"
 OUTPUT_DIR = "output"
 TEMP_DIR = "temp_chunks"
 
+def get_audio_duration(file_path):
+    try:
+        probe = ffmpeg.probe(file_path)
+        return float(probe['format']['duration'])
+    except ffmpeg.Error as e:
+        print(f"Error detectando duración: {e.stderr.decode()}")
+        return 0.0
+
 def split_audio(file_path):
     print(f"Cargando {file_path} para dividir (puede tardar un poco dependiendo del tamaño)...")
-    audio = AudioSegment.from_file(file_path)
-    total_duration_ms = len(audio)
+    total_duration_sec = get_audio_duration(file_path)
+    if total_duration_sec == 0:
+        return [], 0
     
-    chunk_length_ms = CHUNK_LENGTH_MIN * 60 * 1000
-    overlap_ms = OVERLAP_SEC * 1000
+    chunk_length_sec = CHUNK_LENGTH_MIN * 60
+    overlap_sec = OVERLAP_SEC
     
     chunks = []
-    start_ms = 0
+    start_sec = 0
     chunk_index = 0
     
     base_name = os.path.splitext(os.path.basename(file_path))[0]
     
-    while start_ms < total_duration_ms:
-        end_ms = min(start_ms + chunk_length_ms + overlap_ms, total_duration_ms)
-        chunk = audio[start_ms:end_ms]
+    while start_sec < total_duration_sec:
+        end_sec = min(start_sec + chunk_length_sec + overlap_sec, total_duration_sec)
+        duration_to_extract = end_sec - start_sec
         
         chunk_filename = f"{base_name}_chunk_{chunk_index:03d}.wav"
         chunk_path = os.path.join(TEMP_DIR, chunk_filename)
-        chunk.export(chunk_path, format="wav")
+        
+        try:
+            (
+                ffmpeg
+                .input(file_path, ss=start_sec, t=duration_to_extract)
+                .output(chunk_path, acodec='pcm_s16le', ac=1, ar='16k', loglevel='quiet')
+                .overwrite_output()
+                .run()
+            )
+        except ffmpeg.Error as e:
+            print(f"Error dividiendo audio en chunk {chunk_index}: {e.stderr.decode() if e.stderr else str(e)}")
+            break
         
         chunks.append({
             'index': chunk_index,
             'path': chunk_path,
-            'start_offset_ms': start_ms
+            'start_offset_ms': start_sec * 1000
         })
         
-        start_ms += chunk_length_ms
+        start_sec += chunk_length_sec
         chunk_index += 1
         
     print(f"Dividido en {len(chunks)} fragmentos.")
-    return chunks, total_duration_ms
+    return chunks, total_duration_sec * 1000
 
 def transcribe_chunk(chunk_info, model_size, device, compute_type):
     chunk_path = chunk_info['path']
